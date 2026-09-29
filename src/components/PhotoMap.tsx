@@ -11,7 +11,7 @@ import { divIcon, type LatLngBoundsExpression } from 'leaflet'
 import { MapHeader } from './MapHeader'
 import type { DateGranularity } from './DateRangePicker'
 import { filterLocationsByPlace } from '../services/reverseGeocodingService'
-import { mergePhotoLocations } from '../services/photoLocationService'
+import { getPhotoKey } from '../services/photoLocationService'
 import type { PhotoLocation } from '../types/photo'
 import type { PhotoProcessingResult } from '../services/photoExifService'
 import 'leaflet/dist/leaflet.css'
@@ -25,7 +25,11 @@ type PhotoMarkersProps = PhotoLocationsProps & {
 }
 
 type PhotoMapProps = PhotoMarkersProps & {
-  onPhotosAdded: (result: PhotoProcessingResult, locations: PhotoLocation[]) => void
+  onPhotosAdded: (result: PhotoProcessingResult) => void | Promise<void>
+  onSaveAll: () => Promise<void>
+  unsavedPhotoCount: number
+  isSavingPhotos: boolean
+  saveProgress: { completed: number; total: number } | null
 }
 
 const MIN_PIN_SIZE = 36
@@ -168,16 +172,38 @@ function groupNearbyLocations(
   })
 }
 
-export function PhotoMap({ locations, onLocationSelect, onPhotosAdded }: PhotoMapProps) {
+export function PhotoMap({
+  locations,
+  onLocationSelect,
+  onPhotosAdded,
+  onSaveAll,
+  unsavedPhotoCount,
+  isSavingPhotos,
+  saveProgress,
+}: PhotoMapProps) {
   const [query, setQuery] = useState('')
   const [dateGranularity, setDateGranularity] = useState<DateGranularity>('day')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [visibleLocations, setVisibleLocations] = useState(locations)
+  const [visiblePhotoIds, setVisiblePhotoIds] = useState<string[] | null>(null)
   const [isFiltering, setIsFiltering] = useState(false)
   const [checkedCount, setCheckedCount] = useState(0)
   const [matchCount, setMatchCount] = useState<number | null>(null)
   const [lookupFailureCount, setLookupFailureCount] = useState(0)
+  const visiblePhotoIdSet = visiblePhotoIds ? new Set(visiblePhotoIds) : null
+  const visibleLocations = locations.flatMap((location) => {
+    const photos = visiblePhotoIdSet
+      ? location.photos.filter((photo) => visiblePhotoIdSet.has(photo.id))
+      : location.photos
+    return photos.length > 0 ? [{ ...location, photos }] : []
+  })
+  const dateFilteredLocations = filterLocationsByDate(
+    locations,
+    dateGranularity,
+    dateFrom,
+    dateTo,
+  )
+
   const availableYears = Array.from(
     new Set(
       locations.flatMap((location) =>
@@ -188,17 +214,22 @@ export function PhotoMap({ locations, onLocationSelect, onPhotosAdded }: PhotoMa
     ),
   ).sort((first, second) => Number(second) - Number(first))
 
-  const dateFilteredLocations = filterLocationsByDate(
-    locations,
-    dateGranularity,
-    dateFrom,
-    dateTo,
-  )
+  const handlePhotosAdded = async (result: PhotoProcessingResult) => {
+    const existingPhotoKeys = new Set(locations.flatMap((location) =>
+      location.photos.map(getPhotoKey),
+    ))
+    const uploadableLocations = result.locations.flatMap((location) => {
+      const photos = location.photos.filter((photo) => {
+        const photoKey = getPhotoKey(photo)
+        if (existingPhotoKeys.has(photoKey)) return false
+        existingPhotoKeys.add(photoKey)
+        return true
+      })
+      return photos.length > 0 ? [{ ...location, photos }] : []
+    })
 
-  const handlePhotosAdded = (result: PhotoProcessingResult) => {
-    const mergedLocations = mergePhotoLocations(locations, result.locations)
-    onPhotosAdded(result, mergedLocations)
-    setVisibleLocations(mergedLocations)
+    await onPhotosAdded({ ...result, locations: uploadableLocations })
+    setVisiblePhotoIds(null)
     setQuery('')
     setDateFrom('')
     setDateTo('')
@@ -207,13 +238,21 @@ export function PhotoMap({ locations, onLocationSelect, onPhotosAdded }: PhotoMa
     setCheckedCount(0)
   }
 
-  const handleFilter = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const normalizedQuery = query.trim()
-    const hasDateFilter = Boolean(dateFrom || dateTo)
+  const applyFilter = async (
+    filters: { granularity: DateGranularity; from: string; to: string },
+    searchText = query,
+  ) => {
+    const normalizedQuery = searchText.trim()
+    const hasDateFilter = Boolean(filters.from || filters.to)
+    const dateFilteredLocations = filterLocationsByDate(
+      locations,
+      filters.granularity,
+      filters.from,
+      filters.to,
+    )
 
     if (!normalizedQuery && !hasDateFilter) {
-      setVisibleLocations(locations)
+      setVisiblePhotoIds(null)
       setMatchCount(null)
       setLookupFailureCount(0)
       setCheckedCount(0)
@@ -236,7 +275,9 @@ export function PhotoMap({ locations, onLocationSelect, onPhotosAdded }: PhotoMa
           lookupFailures: 0,
         }
 
-    setVisibleLocations(result.locations)
+    setVisiblePhotoIds(
+      result.locations.flatMap((location) => location.photos.map((photo) => photo.id)),
+    )
     setMatchCount(
       result.locations.reduce((total, location) => total + location.photos.length, 0),
     )
@@ -244,21 +285,37 @@ export function PhotoMap({ locations, onLocationSelect, onPhotosAdded }: PhotoMa
     setIsFiltering(false)
   }
 
+  const handleFilter = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await applyFilter({ granularity: dateGranularity, from: dateFrom, to: dateTo })
+  }
+
+  const handleClearSearch = () => {
+    setQuery('')
+    void applyFilter({ granularity: dateGranularity, from: dateFrom, to: dateTo }, '')
+  }
+
+  const handleDateRangeApply = (
+    granularity: DateGranularity,
+    from: string,
+    to: string,
+  ) => {
+    setDateGranularity(granularity)
+    setDateFrom(from)
+    setDateTo(to)
+    void applyFilter({ granularity, from, to })
+  }
+
   return (
     <div className="map-page">
       <MapHeader
         query={query}
         onQueryChange={setQuery}
+        onClearSearch={handleClearSearch}
         dateGranularity={dateGranularity}
-        onDateGranularityChange={(granularity) => {
-          setDateGranularity(granularity)
-          setDateFrom('')
-          setDateTo('')
-        }}
         dateFrom={dateFrom}
         dateTo={dateTo}
-        onDateFromChange={setDateFrom}
-        onDateToChange={setDateTo}
+        onDateRangeApply={handleDateRangeApply}
         availableYears={availableYears}
         onSubmit={handleFilter}
         isFiltering={isFiltering}
@@ -267,6 +324,10 @@ export function PhotoMap({ locations, onLocationSelect, onPhotosAdded }: PhotoMa
         matchCount={matchCount}
         lookupFailureCount={lookupFailureCount}
         onPhotosAdded={handlePhotosAdded}
+        onSaveAll={onSaveAll}
+        unsavedPhotoCount={unsavedPhotoCount}
+        isSavingPhotos={isSavingPhotos}
+        saveProgress={saveProgress}
       />
       <MapContainer
         className="photo-map"

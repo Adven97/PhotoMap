@@ -1,16 +1,18 @@
 import { useRef, useState } from 'react'
 import type { DragEvent } from 'react'
-import { ImagePlus, Save, Trash2, Upload } from 'lucide-react'
+import { ImagePlus, Trash2, Upload } from 'lucide-react'
 import { processPhotoFiles, type PhotoProcessingResult } from '../services/photoExifService'
 
 type InitialViewProps = {
-  onSaved: (result: PhotoProcessingResult) => void
+  onProcessed: (result: PhotoProcessingResult) => Promise<void>
 }
 
-export function InitialView({ onSaved }: InitialViewProps) {
+export function InitialView({ onProcessed }: InitialViewProps) {
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [processingProgress, setProcessingProgress] = useState(0)
+  const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const addFiles = (selectedFiles: FileList | File[]) => {
@@ -40,9 +42,29 @@ export function InitialView({ onSaved }: InitialViewProps) {
 
   const handleSave = async () => {
     setIsProcessing(true)
-    const result = await processPhotoFiles(files)
-    setIsProcessing(false)
-    onSaved(result)
+    setProcessingProgress(0)
+    setError(null)
+    try {
+      const result = await processPhotoFiles(files, (completed, total) => {
+        setProcessingProgress(total > 0 ? Math.round((completed / total) * 100) : 0)
+      })
+      const photoCount = result.locations.reduce(
+        (total, location) => total + location.photos.length,
+        0,
+      )
+
+      if (photoCount === 0) {
+        setError('No photos with readable GPS location data were found. Check that location data is included in the photos.')
+        return
+      }
+
+      await onProcessed(result)
+    } catch {
+      setError('Photos could not be processed. Try selecting them again.')
+    } finally {
+      setIsProcessing(false)
+      setProcessingProgress(0)
+    }
   }
 
   return (
@@ -114,21 +136,24 @@ export function InitialView({ onSaved }: InitialViewProps) {
             <div className="files-heading">
               <span>{files.length} {files.length === 1 ? 'photo' : 'photos'} selected</span>
             </div>
-            <ul>
-              {files.slice(0, 5).map((file) => (
-                <li key={`${file.name}-${file.lastModified}`}>
-                  <span>{file.name}</span>
-                  <small>{Math.round(file.size / 1024)} KB</small>
-                </li>
-              ))}
-              {files.length > 5 && (
-                <li className="more-files" aria-label={`${files.length - 5} more photos`}>
-                  ... and {files.length - 5} more
-                </li>
-              )}
-            </ul>
+            <p
+              className="selected-files-summary"
+              title={files.map((file) => file.name).join(', ')}
+            >
+              {files.slice(0, 5).map((file) => file.name).join(', ')}
+              {files.length > 5 && `... and ${files.length - 5} more`}
+            </p>
           </div>
         )}
+
+        {isProcessing && (
+          <div className="processing-progress" aria-live="polite">
+            <div className="processing-progress-bar" style={{ width: `${processingProgress}%` }} />
+            <span>{processingProgress}% processed</span>
+          </div>
+        )}
+
+        {error && <p className="map-upload-error" role="alert">{error}</p>}
 
         <button
           type="button"
@@ -136,8 +161,8 @@ export function InitialView({ onSaved }: InitialViewProps) {
           disabled={files.length === 0 || isProcessing}
           onClick={handleSave}
         >
-          <Save aria-hidden="true" size={18} />
-          {isProcessing ? 'Reading photos...' : 'Save'}
+          <ImagePlus aria-hidden="true" size={18} />
+          {isProcessing ? 'Processing photos...' : 'Add to map'}
         </button>
       </section>
     </main>

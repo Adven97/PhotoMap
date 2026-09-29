@@ -37,6 +37,6 @@ export function mergePhotoLocations(
   return Array.from(locations.values())
 }
 
-function getPhotoKey(photo: PhotoRecord): string {
-  return `${photo.file.name}:${photo.file.lastModified}:${photo.file.size}`
+export function getPhotoKey(photo: PhotoRecord): string {
+  return `${photo.fileName}:${photo.file.lastModified}:${photo.file.size}`
 }

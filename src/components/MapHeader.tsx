@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, Search } from 'lucide-react'
+import { ChevronDown, ChevronUp, LoaderCircle, Save, X } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { DateRangePicker } from './DateRangePicker'
 import type { DateGranularity } from './DateRangePicker'
@@ -9,12 +9,15 @@ import type { PhotoProcessingResult } from '../services/photoExifService'
 type MapHeaderProps = {
   query: string
   onQueryChange: (query: string) => void
+  onClearSearch: () => void
   dateGranularity: DateGranularity
-  onDateGranularityChange: (granularity: DateGranularity) => void
   dateFrom: string
   dateTo: string
-  onDateFromChange: (date: string) => void
-  onDateToChange: (date: string) => void
+  onDateRangeApply: (
+    granularity: DateGranularity,
+    dateFrom: string,
+    dateTo: string,
+  ) => void
   availableYears: string[]
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   isFiltering: boolean
@@ -22,18 +25,21 @@ type MapHeaderProps = {
   locationCount: number
   matchCount: number | null
   lookupFailureCount: number
-  onPhotosAdded: (result: PhotoProcessingResult) => void
+  onPhotosAdded: (result: PhotoProcessingResult) => Promise<void>
+  onSaveAll: () => Promise<void>
+  unsavedPhotoCount: number
+  isSavingPhotos: boolean
+  saveProgress: { completed: number; total: number } | null
 }
 
 export function MapHeader({
   query,
   onQueryChange,
+  onClearSearch,
   dateGranularity,
-  onDateGranularityChange,
   dateFrom,
   dateTo,
-  onDateFromChange,
-  onDateToChange,
+  onDateRangeApply,
   availableYears,
   onSubmit,
   isFiltering,
@@ -42,6 +48,10 @@ export function MapHeader({
   matchCount,
   lookupFailureCount,
   onPhotosAdded,
+  onSaveAll,
+  unsavedPhotoCount,
+  isSavingPhotos,
+  saveProgress,
 }: MapHeaderProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
@@ -50,6 +60,24 @@ export function MapHeader({
       <div className="map-header-title">
         <p className="map-brand">PhotoMap</p>
         <span>{locationCount} {locationCount === 1 ? 'location' : 'locations'}</span>
+        <button
+          type="button"
+          className="map-save-button"
+          disabled={isSavingPhotos || unsavedPhotoCount === 0}
+          aria-busy={isSavingPhotos}
+          onClick={() => void onSaveAll()}
+        >
+          {isSavingPhotos ? (
+            <LoaderCircle aria-hidden="true" className="is-spinning" size={16} />
+          ) : (
+            <Save aria-hidden="true" size={16} />
+          )}
+          {isSavingPhotos
+            ? `Saving ${saveProgress?.completed ?? 0}/${saveProgress?.total ?? unsavedPhotoCount}...`
+            : unsavedPhotoCount > 0
+              ? `Save all (${unsavedPhotoCount})`
+              : 'Save all'}
+        </button>
         <button
           type="button"
           className="map-header-toggle"
@@ -72,27 +100,39 @@ export function MapHeader({
                 type="search"
                 value={query}
                 placeholder="Filter by city or country"
-                onChange={(event) => onQueryChange(event.target.value)}
+                onChange={(event) => {
+                  if (event.target.value === '') onClearSearch()
+                  else onQueryChange(event.target.value)
+                }}
               />
-              <button type="submit" disabled={isFiltering}>
-                <Search aria-hidden="true" size={16} />
-                Apply
-              </button>
+              <div className="city-filter-actions">
+                {query && (
+                  <button
+                    type="button"
+                    className="city-filter-clear"
+                    aria-label="Clear search"
+                    title="Clear search"
+                    disabled={isFiltering}
+                    onClick={onClearSearch}
+                  >
+                    <X aria-hidden="true" size={16} />
+                  </button>
+                )}
+                <button type="submit" className="city-filter-apply" disabled={isFiltering}>
+                  Apply
+                </button>
+              </div>
             </div>
             <DateRangePicker
               granularity={dateGranularity}
               dateFrom={dateFrom}
               dateTo={dateTo}
               availableYears={availableYears}
-              onChange={(granularity, from, to) => {
-                onDateGranularityChange(granularity)
-                onDateFromChange(from)
-                onDateToChange(to)
-              }}
+              onChange={onDateRangeApply}
             />
           </form>
           <MapPhotoUploader
-            disabled={isFiltering}
+            disabled={isFiltering || isSavingPhotos}
             onProcessed={onPhotosAdded}
           />
           {isFiltering && (

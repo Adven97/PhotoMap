@@ -5,7 +5,7 @@ import { processPhotoFiles, type PhotoProcessingResult } from '../services/photo
 
 type MapPhotoUploaderProps = {
   disabled: boolean
-  onProcessed: (result: PhotoProcessingResult) => void
+  onProcessed: (result: PhotoProcessingResult) => void | Promise<void>
 }
 
 export function MapPhotoUploader({ disabled, onProcessed }: MapPhotoUploaderProps) {
@@ -47,10 +47,10 @@ export function MapPhotoUploader({ disabled, onProcessed }: MapPhotoUploaderProp
     setError(null)
     try {
       const result = await processPhotoFiles(files)
-      onProcessed(result)
+      await onProcessed(result)
       setFiles([])
     } catch {
-      setError('Photos could not be processed. Please try again.')
+      setError('Photos could not be processed. Try selecting them again.')
     } finally {
       setIsProcessing(false)
     }

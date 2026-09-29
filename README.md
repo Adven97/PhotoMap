@@ -17,59 +17,55 @@ If you are developing a production application, we recommend updating the config
 
 ```js
 export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+  # PhotoMap
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+  PhotoMap reads photo coordinates and capture dates in the browser, removes embedded image metadata, and stores each photo in the signed-in user's Firebase collection.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
+  ## Firebase setup
+
+  1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com/) and register a Web app.
+  2. In **Authentication → Sign-in method**, enable Google. Add `localhost` and your production hostname under authorized domains.
+  3. Create a Cloud Firestore database. Select a region close to your users.
+  4. Create the Firebase Storage bucket. The bucket requires a billing-enabled Firebase plan; check the current Firebase pricing and quotas before enabling uploads.
+  5. Copy the Web app configuration into `.env.local`, using `.env.example` as the template. Set the Storage bucket value exactly as shown in Project settings. Restart Vite after changing environment variables.
+  6. Deploy the included owner-only rules before uploading real photos:
+
+  ```powershell
+  npm install --global firebase-tools
+  firebase login
+  firebase use --add
+  firebase deploy --only firestore:rules,storage
+  ```
+
+  7. Configure bucket CORS for authenticated browser image reads. Replace the origins in `storage.cors.json` with your actual development and production origins, then run:
+
+  ```powershell
+  gcloud storage buckets update gs://YOUR_STORAGE_BUCKET --cors-file=storage.cors.json
+  ```
+
+  Install and authenticate the Google Cloud CLI first if it is not already available. CORS is needed because PhotoMap loads private Storage files as blobs using the authenticated Firebase SDK.
+
+  The Firebase Web API key is public client configuration, not a service-account credential. Never add a service-account JSON file or private key to this frontend project. Firestore and Storage rules enforce data ownership.
+
+  ## Stored data
+
+  Each photo is stored at `users/{uid}/photos/{photoId}` in Firestore. Metadata includes the original display filename, Storage path, MIME type, size, coordinates, capture time, description, and optional city/country. The sanitized image is stored at `users/{uid}/photos/{photoId}/original` in Storage. The app groups photo documents by rounded coordinates to create map locations and pins.
+
+  New Firebase accounts start empty. Existing IndexedDB collections are not migrated. Photos are decoded locally to read EXIF, then re-encoded before upload to remove EXIF metadata. HEIC files are converted to JPEG for upload.
+
+  Both rules files require the authenticated UID to match the `{uid}` path. They limit stored images to 25 MB and to JPEG, PNG, or WebP content. Update the limit in both rule files together if product requirements change.
+
+  ## Run locally
+
+  ```powershell
+  npm install
+  npm run dev
+  ```
+
+  Useful checks:
+
+  ```powershell
+  npm run lint
+  npm run build
+  ```
     },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```

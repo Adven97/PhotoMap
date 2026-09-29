@@ -1,5 +1,6 @@
 import exifr from 'exifr'
 import type { PhotoLocation, PhotoRecord } from '../types/photo'
+import { stripImageMetadata } from './imageSanitizationService'
 
 type ExifMetadata = {
   latitude?: unknown
@@ -23,11 +24,14 @@ const LOCATION_PRECISION = 4
 
 export async function processPhotoFiles(
   files: File[],
+  onProgress?: (completed: number, total: number) => void,
 ): Promise<PhotoProcessingResult> {
   const locations = new Map<string, PhotoLocation>()
   const skippedPhotos: SkippedPhoto[] = []
+  const concurrency = Math.min(3, Math.max(1, files.length))
+  let processedCount = 0
 
-  for (const [index, file] of files.entries()) {
+  const results = await mapWithConcurrency(files, concurrency, async (file, index) => {
     try {
       const metadata = (await exifr.parse(file, {
         gps: true,
@@ -39,17 +43,15 @@ export async function processPhotoFiles(
       const longitude = toCoordinate(metadata?.longitude, -180, 180)
 
       if (latitude === undefined || longitude === undefined) {
-        skippedPhotos.push({
-          fileName: file.name,
-          reason: 'missing-location',
-        })
-        continue
+        return { skipped: { fileName: file.name, reason: 'missing-location' as const } }
       }
 
+      const sanitizedFile = await stripImageMetadata(file)
       const photo: PhotoRecord = {
         id: createPhotoId(file, index),
-        file,
-        previewUrl: URL.createObjectURL(file),
+        fileName: sanitizedFile.name,
+        file: sanitizedFile,
+        previewUrl: URL.createObjectURL(sanitizedFile),
         latitude,
         longitude,
         takenAt: toDate(
@@ -59,23 +61,38 @@ export async function processPhotoFiles(
         ),
       }
 
-      const locationKey = createLocationKey(latitude, longitude)
-      const existingLocation = locations.get(locationKey)
-
-      if (existingLocation) {
-        existingLocation.photos.push(photo)
-      } else {
-        locations.set(locationKey, {
-          id: `location-${locationKey}`,
-          latitude,
-          longitude,
-          photos: [photo],
-        })
+      return {
+        photo,
+        locationKey: createLocationKey(latitude, longitude),
       }
     } catch {
-      skippedPhotos.push({
-        fileName: file.name,
-        reason: 'read-failed',
+      return { skipped: { fileName: file.name, reason: 'read-failed' as const } }
+    } finally {
+      processedCount += 1
+      onProgress?.(processedCount, files.length)
+    }
+  })
+
+  for (const result of results) {
+    if (result == null) continue
+
+    if ('skipped' in result) {
+      const skipped = result.skipped
+      if (skipped) skippedPhotos.push(skipped)
+      continue
+    }
+
+    const existingLocation = locations.get(result.locationKey)
+    if (existingLocation) {
+      existingLocation.photos.push(result.photo)
+    } else {
+      locations.set(result.locationKey, {
+        id: `location-${result.locationKey}`,
+        latitude: result.photo.latitude,
+        longitude: result.photo.longitude,
+        city: undefined,
+        country: undefined,
+        photos: [result.photo],
       })
     }
   }
@@ -109,5 +126,24 @@ function createLocationKey(latitude: number, longitude: number): string {
 }
 
 function createPhotoId(file: File, index: number): string {
-  return `${file.name}-${file.lastModified}-${index}`
+  return crypto.randomUUID?.() ?? `${file.name}-${file.lastModified}-${index}`
+}
+
+async function mapWithConcurrency<T, Result>(
+  items: T[],
+  concurrency: number,
+  mapItem: (item: T, index: number) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(items.length)
+  let nextIndex = 0
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      results[currentIndex] = await mapItem(items[currentIndex], currentIndex)
+    }
+  }))
+
+  return results
 }

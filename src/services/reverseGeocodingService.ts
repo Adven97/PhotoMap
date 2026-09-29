@@ -12,7 +12,12 @@ type NominatimResponse = {
   }
 }
 
-const lookupCache = new Map<string, Promise<string | null>>()
+export type PlaceDetails = {
+  city: string | null
+  country: string | null
+}
+
+const lookupCache = new Map<string, Promise<PlaceDetails | null>>()
 let requestQueue = Promise.resolve()
 let lastRequestAt = 0
 
@@ -25,7 +30,7 @@ export type PlaceFilterResult = {
 export function reverseGeocode(
   latitude: number,
   longitude: number,
-): Promise<string | null> {
+): Promise<PlaceDetails | null> {
   const cacheKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`
   const cachedLookup = lookupCache.get(cacheKey)
   if (cachedLookup) return cachedLookup
@@ -41,6 +46,7 @@ export function reverseGeocode(
     url.searchParams.set('lon', longitude.toString())
     url.searchParams.set('zoom', '10')
     url.searchParams.set('addressdetails', '1')
+    url.searchParams.set('accept-language', 'en')
 
     const response = await fetch(url)
     if (!response.ok) throw new Error('Reverse geocoding request failed')
@@ -55,8 +61,10 @@ export function reverseGeocode(
       address?.hamlet ??
       address?.county
 
-    if (city && address?.country) return `${city}, ${address.country}`
-    return city ?? address?.country ?? null
+    const country = address?.country ?? null
+    if (!city && !country) return null
+
+    return { city: city ?? null, country }
   })
 
   requestQueue = lookup.then(
@@ -71,6 +79,12 @@ export function reverseGeocode(
   })
 }
 
+export function formatPlaceName(place: PlaceDetails | null): string | null {
+  if (!place) return null
+  if (place.city && place.country) return `${place.city}, ${place.country}`
+  return place.city ?? place.country
+}
+
 export async function filterLocationsByPlace(
   locations: PhotoLocation[],
   query: string,
@@ -82,8 +96,12 @@ export async function filterLocationsByPlace(
 
   for (const [index, location] of locations.entries()) {
     try {
-      const place = await reverseGeocode(location.latitude, location.longitude)
-      if (place?.toLocaleLowerCase().includes(normalizedQuery)) {
+      const place = location.city || location.country
+        ? { city: location.city ?? null, country: location.country ?? null }
+        : await reverseGeocode(location.latitude, location.longitude)
+      const placeName = formatPlaceName(place)
+
+      if (placeName?.toLocaleLowerCase().includes(normalizedQuery)) {
         matches.push(location)
       }
     } catch {

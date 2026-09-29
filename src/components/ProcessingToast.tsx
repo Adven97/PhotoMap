@@ -27,12 +27,12 @@ export function ProcessingToast({ result }: ProcessingToastProps) {
       <div>
         <strong>
           {hasSuccessfulPhotos
-            ? 'Photos added successfully'
+            ? 'Photos added to map'
             : 'No photos were added'}
         </strong>
         <p>
           {hasSuccessfulPhotos
-            ? `${successfulCount} ${successfulCount === 1 ? 'photo' : 'photos'} added, ${failedCount} failed.`
+            ? `${successfulCount} ${successfulCount === 1 ? 'photo' : 'photos'} ready to save, ${failedCount} skipped.`
             : `${failedCount} ${failedCount === 1 ? 'photo' : 'photos'} failed. Photos need readable GPS location data.`}
         </p>
       </div>

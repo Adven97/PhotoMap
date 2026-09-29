@@ -1,0 +1,47 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/photos/{photoId} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+
+      function validPhoto(data) {
+        return data.keys().hasAll([
+            'fileName', 'storagePath', 'contentType', 'lastModified', 'sizeBytes',
+            'latitude', 'longitude', 'takenAt', 'description', 'city', 'country',
+            'createdAt', 'updatedAt'
+          ])
+          && data.keys().hasOnly([
+            'fileName', 'storagePath', 'contentType', 'lastModified', 'sizeBytes',
+            'latitude', 'longitude', 'takenAt', 'description', 'city', 'country',
+            'createdAt', 'updatedAt'
+          ])
+          && data.fileName is string
+          && data.storagePath is string
+          && data.storagePath.matches('https://res\\.cloudinary\\.com/[^/]+/image/upload/.+')
+          && data.contentType in ['image/jpeg', 'image/png', 'image/webp']
+          && data.lastModified is int
+          && data.sizeBytes is int
+          && data.sizeBytes > 0
+          && data.sizeBytes <= 25 * 1024 * 1024
+          && data.latitude is number
+          && data.latitude >= -90
+          && data.latitude <= 90
+          && data.longitude is number
+          && data.longitude >= -180
+          && data.longitude <= 180
+          && (data.takenAt == null || data.takenAt is timestamp)
+          && data.description is string
+          && (data.city == null || data.city is string)
+          && (data.country == null || data.country is string)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp;
+      }
+
+      allow read, delete: if isOwner();
+      allow create, update: if isOwner() && validPhoto(request.resource.data);
+    }
+  }
+}
