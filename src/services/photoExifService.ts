@@ -5,6 +5,11 @@ import { stripImageMetadata } from './imageSanitizationService'
 type ExifMetadata = {
   latitude?: unknown
   longitude?: unknown
+  ImageDescription?: unknown
+  UserComment?: unknown
+  XPComment?: unknown
+  XPSubject?: unknown
+  XPTitle?: unknown
   DateTimeOriginal?: unknown
   CreateDate?: unknown
   ModifyDate?: unknown
@@ -54,6 +59,13 @@ export async function processPhotoFiles(
         previewUrl: URL.createObjectURL(sanitizedFile),
         latitude,
         longitude,
+        description: firstDescription(
+          metadata?.ImageDescription,
+          metadata?.UserComment,
+          toDescription(metadata?.XPComment, 'utf-16le'),
+          toDescription(metadata?.XPSubject, 'utf-16le'),
+          toDescription(metadata?.XPTitle, 'utf-16le'),
+        ),
         takenAt: toDate(
           metadata?.DateTimeOriginal ??
             metadata?.CreateDate ??
@@ -146,4 +158,36 @@ async function mapWithConcurrency<T, Result>(
   }))
 
   return results
+}
+
+function firstDescription(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const description = toDescription(value)
+    if (description) return description
+  }
+
+  return undefined
+}
+
+function toDescription(
+  value: unknown,
+  encoding: 'utf-8' | 'utf-16le' = 'utf-8',
+): string | undefined {
+  let description: string
+
+  if (typeof value === 'string') {
+    description = value
+  } else if (value instanceof ArrayBuffer) {
+    description = new TextDecoder(encoding).decode(value)
+  } else if (ArrayBuffer.isView(value)) {
+    const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    description = new TextDecoder(encoding).decode(bytes)
+  } else if (Array.isArray(value) && value.every((byte) => typeof byte === 'number')) {
+    description = new TextDecoder(encoding).decode(new Uint8Array(value))
+  } else {
+    return undefined
+  }
+
+  const normalized = description.replace(/\0/g, '').trim()
+  return normalized || undefined
 }

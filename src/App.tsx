@@ -29,6 +29,7 @@ function App({ userId }: AppProps) {
   const [processingResult, setProcessingResult] = useState<PhotoProcessingResult | null>(null)
   const [isRestoring, setIsRestoring] = useState(true)
   const [isSavingPhotos, setIsSavingPhotos] = useState(false)
+  const [pendingPhotoDeletionIds, setPendingPhotoDeletionIds] = useState<string[]>([])
   const [saveProgress, setSaveProgress] = useState<{ completed: number; total: number } | null>(null)
   const [storageError, setStorageError] = useState<string | null>(null)
   const placeLookupIds = useRef(new Set<string>())
@@ -38,6 +39,7 @@ function App({ userId }: AppProps) {
     (total, location) => total + location.photos.filter((photo) => !photo.storagePath).length,
     0,
   )
+  const pendingChangeCount = unsavedPhotoCount + pendingPhotoDeletionIds.length
 
   useEffect(() => {
     locationsRef.current = locations
@@ -160,19 +162,25 @@ function App({ userId }: AppProps) {
       return photos.length > 0 ? [{ ...location, photos }] : []
     })
 
-    if (unsavedLocations.length === 0 || isSavingPhotos) return
+    const photosToDelete = [...pendingPhotoDeletionIds]
+    if ((unsavedLocations.length === 0 && photosToDelete.length === 0) || isSavingPhotos) return
 
     setIsSavingPhotos(true)
     setStorageError(null)
+    let completedChanges = 0
+    const uploadCount = unsavedLocations.reduce((total, location) => total + location.photos.length, 0)
     setSaveProgress({
       completed: 0,
-      total: unsavedLocations.reduce((total, location) => total + location.photos.length, 0),
+      total: uploadCount + photosToDelete.length,
     })
     try {
       const uploadedLocations = await uploadPhotoLocations(
         userId,
         unsavedLocations,
-        (completed, total) => setSaveProgress({ completed, total }),
+        (completed) => {
+          completedChanges = completed
+          setSaveProgress({ completed: completedChanges, total: uploadCount + photosToDelete.length })
+        },
       )
       const uploadedPhotos = new Map(
         uploadedLocations.flatMap((location) =>
@@ -189,6 +197,16 @@ function App({ userId }: AppProps) {
             : photo
         }),
       })))
+
+      for (const photoId of photosToDelete) {
+        await deleteUserPhoto(userId, photoId)
+        completedChanges += 1
+        setSaveProgress({ completed: completedChanges, total: uploadCount + photosToDelete.length })
+      }
+
+      setPendingPhotoDeletionIds((current) =>
+        current.filter((photoId) => !photosToDelete.includes(photoId)),
+      )
     } catch (error) {
       setStorageError(error instanceof Error ? error.message : 'Photo saving failed.')
     } finally {
@@ -215,7 +233,7 @@ function App({ userId }: AppProps) {
           onLocationSelect={setSelectedLocation}
           onPhotosAdded={handlePhotosAdded}
           onSaveAll={handleSaveAll}
-          unsavedPhotoCount={unsavedPhotoCount}
+          pendingChangeCount={pendingChangeCount}
           isSavingPhotos={isSavingPhotos}
           saveProgress={saveProgress}
         />
@@ -250,7 +268,11 @@ function App({ userId }: AppProps) {
 
               if (!photo) return
 
-              await deleteUserPhoto(userId, photoId)
+              if (photo.storagePath) {
+                setPendingPhotoDeletionIds((current) =>
+                  current.includes(photoId) ? current : [...current, photoId],
+                )
+              }
               setLocations((current) => current.flatMap((location) => {
                 const photos = location.photos.filter((item) => item.id !== photoId)
                 return photos.length > 0 ? [{ ...location, photos }] : []
@@ -260,7 +282,9 @@ function App({ userId }: AppProps) {
                 const photos = current.photos.filter((item) => item.id !== photoId)
                 return photos.length > 0 ? { ...current, photos } : null
               })
-              URL.revokeObjectURL(photo.previewUrl)
+              if (photo.previewUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(photo.previewUrl)
+              }
               setStorageError(null)
             }}
           />

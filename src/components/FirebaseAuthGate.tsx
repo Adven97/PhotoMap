@@ -58,7 +58,9 @@ export function FirebaseAuthGate() {
     return (
       <main className="auth-page">
         <section className="auth-panel" aria-labelledby="firebase-setup-title">
-          <MapPinned aria-hidden="true" size={30} />
+          <div className="auth-mark">
+            <MapPinned aria-hidden="true" size={24} />
+          </div>
           <p className="eyebrow">PhotoMap</p>
           <h1 id="firebase-setup-title">Firebase setup required</h1>
           <p>
@@ -71,14 +73,21 @@ export function FirebaseAuthGate() {
   }
 
   if (isLoading) {
-    return <main className="app-loading" role="status">Checking your account...</main>
+    return (
+      <main className="app-loading" role="status">
+        <span className="auth-loader" aria-hidden="true" />
+        <span>Checking your account...</span>
+      </main>
+    )
   }
 
   if (!user) {
     return (
       <main className="auth-page">
         <section className="auth-panel" aria-labelledby="sign-in-title">
-          <MapPinned aria-hidden="true" size={30} />
+          <div className="auth-mark">
+            <MapPinned aria-hidden="true" size={24} />
+          </div>
           <p className="eyebrow">PhotoMap</p>
           <h1 id="sign-in-title">Your photos, mapped</h1>
           <p>Sign in to save your photo collection to your account.</p>

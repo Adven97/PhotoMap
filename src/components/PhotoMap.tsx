@@ -27,7 +27,7 @@ type PhotoMarkersProps = PhotoLocationsProps & {
 type PhotoMapProps = PhotoMarkersProps & {
   onPhotosAdded: (result: PhotoProcessingResult) => void | Promise<void>
   onSaveAll: () => Promise<void>
-  unsavedPhotoCount: number
+  pendingChangeCount: number
   isSavingPhotos: boolean
   saveProgress: { completed: number; total: number } | null
 }
@@ -177,7 +177,7 @@ export function PhotoMap({
   onLocationSelect,
   onPhotosAdded,
   onSaveAll,
-  unsavedPhotoCount,
+  pendingChangeCount,
   isSavingPhotos,
   saveProgress,
 }: PhotoMapProps) {
@@ -325,7 +325,7 @@ export function PhotoMap({
         lookupFailureCount={lookupFailureCount}
         onPhotosAdded={handlePhotosAdded}
         onSaveAll={onSaveAll}
-        unsavedPhotoCount={unsavedPhotoCount}
+        pendingChangeCount={pendingChangeCount}
         isSavingPhotos={isSavingPhotos}
         saveProgress={saveProgress}
       />

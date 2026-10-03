@@ -27,7 +27,7 @@ type MapHeaderProps = {
   lookupFailureCount: number
   onPhotosAdded: (result: PhotoProcessingResult) => Promise<void>
   onSaveAll: () => Promise<void>
-  unsavedPhotoCount: number
+  pendingChangeCount: number
   isSavingPhotos: boolean
   saveProgress: { completed: number; total: number } | null
 }
@@ -49,7 +49,7 @@ export function MapHeader({
   lookupFailureCount,
   onPhotosAdded,
   onSaveAll,
-  unsavedPhotoCount,
+  pendingChangeCount,
   isSavingPhotos,
   saveProgress,
 }: MapHeaderProps) {
@@ -63,7 +63,7 @@ export function MapHeader({
         <button
           type="button"
           className="map-save-button"
-          disabled={isSavingPhotos || unsavedPhotoCount === 0}
+          disabled={isSavingPhotos || pendingChangeCount === 0}
           aria-busy={isSavingPhotos}
           onClick={() => void onSaveAll()}
         >
@@ -73,9 +73,9 @@ export function MapHeader({
             <Save aria-hidden="true" size={16} />
           )}
           {isSavingPhotos
-            ? `Saving ${saveProgress?.completed ?? 0}/${saveProgress?.total ?? unsavedPhotoCount}...`
-            : unsavedPhotoCount > 0
-              ? `Save all (${unsavedPhotoCount})`
+            ? `Saving ${saveProgress?.completed ?? 0}/${saveProgress?.total ?? pendingChangeCount}...`
+            : pendingChangeCount > 0
+              ? `Save changes (${pendingChangeCount})`
               : 'Save all'}
         </button>
         <button
