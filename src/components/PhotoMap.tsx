@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   MapContainer,
@@ -52,60 +52,123 @@ function MapBounds({ locations }: PhotoLocationsProps) {
   return null
 }
 
-function PhotoMarkers({ locations, onLocationSelect }: PhotoMarkersProps) {
+const PhotoMarkers = memo(function PhotoMarkers({ locations, onLocationSelect }: PhotoMarkersProps) {
   const map = useMap()
-  const [zoom, setZoom] = useState(2)
-  const [, setMapRevision] = useState(0)
+  const [zoom, setZoom] = useState(() => map.getZoom())
+  const [separatingGroupIds, setSeparatingGroupIds] = useState<Set<string>>(() => new Set())
+  const previousMembership = useRef(new Map<string, { groupId: string; groupSize: number }>())
+  const isZoomTransition = useRef(false)
+  const animationTimeout = useRef<number | undefined>(undefined)
 
   useMapEvents({
     zoomend: (event) => {
+      isZoomTransition.current = true
       setZoom(event.target.getZoom())
-      setMapRevision((revision) => revision + 1)
     },
-    moveend: () => setMapRevision((revision) => revision + 1),
   })
 
   const pinSize = Math.min(
     MAX_PIN_SIZE,
     Math.max(MIN_PIN_SIZE, MIN_PIN_SIZE + (zoom - 2) * 3),
   )
-  const locationGroups = groupNearbyLocations(locations, map, pinSize + 8)
+  const locationGroups = useMemo(
+    () => groupNearbyLocations(locations, map, pinSize + 8, zoom),
+    [locations, map, pinSize, zoom],
+  )
+
+  useEffect(() => {
+    const previous = previousMembership.current
+    const next = new Map<string, { groupId: string; groupSize: number }>()
+
+    for (const group of locationGroups) {
+      for (const locationId of group.locationIds) {
+        next.set(locationId, {
+          groupId: group.location.id,
+          groupSize: group.locationIds.length,
+        })
+      }
+    }
+
+    const shouldAnimate = isZoomTransition.current
+    isZoomTransition.current = false
+    previousMembership.current = next
+
+    if (!shouldAnimate) return
+
+    const splittingGroups = new Set(
+      locationGroups
+        .filter((group) => group.locationIds.some((locationId) => {
+          const previousGroup = previous.get(locationId)
+          return previousGroup && previousGroup.groupSize > group.locationIds.length
+        }))
+        .map((group) => group.location.id),
+    )
+
+    if (splittingGroups.size === 0) return
+
+    const frame = window.requestAnimationFrame(() => {
+      setSeparatingGroupIds(splittingGroups)
+      window.clearTimeout(animationTimeout.current)
+      animationTimeout.current = window.setTimeout(() => {
+        setSeparatingGroupIds(new Set())
+      }, 380)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [locationGroups])
+
+  useEffect(() => () => window.clearTimeout(animationTimeout.current), [])
+
+  const markers = useMemo(() =>
+    locationGroups.map((group) => ({
+      location: group.location,
+      position: [group.location.latitude, group.location.longitude] as [number, number],
+      eventHandlers: { click: () => onLocationSelect(group.location) },
+      icon: divIcon({
+        className: `photo-pin-icon${group.locationCount > 1 ? ' photo-pin-cluster' : ''}${separatingGroupIds.has(group.location.id) ? ' photo-pin-separating' : ''}`,
+        html: `<span class="photo-pin-content"><span class="photo-pin-photo"><img src="${group.location.photos[0].previewUrl}" alt="" /></span>${group.locationCount > 1 ? `<span class="photo-pin-count">${group.location.photos.length > 99 ? '99+' : group.location.photos.length}</span>` : ''}</span>`,
+        iconSize: [pinSize, pinSize],
+        iconAnchor: [pinSize / 2, pinSize / 2],
+      }),
+    })),
+  [locationGroups, onLocationSelect, pinSize, separatingGroupIds])
 
   return (
     <>
-      {locationGroups.map((group) => (
+      {markers.map((marker) => (
         <Marker
-          key={group.location.id}
-          position={[group.location.latitude, group.location.longitude]}
-          eventHandlers={{ click: () => onLocationSelect(group.location) }}
-          icon={divIcon({
-            className: `photo-pin-icon${group.locationCount > 1 ? ' photo-pin-cluster' : ''}`,
-            html: `<span class="photo-pin-content"><span class="photo-pin-photo"><img src="${group.location.photos[0].previewUrl}" alt="" /></span>${group.locationCount > 1 ? `<span class="photo-pin-count">${group.location.photos.length > 99 ? '99+' : group.location.photos.length}</span>` : ''}</span>`,
-            iconSize: [pinSize, pinSize],
-            iconAnchor: [pinSize / 2, pinSize / 2],
-          })}
+          key={marker.location.id}
+          position={marker.position}
+          eventHandlers={marker.eventHandlers}
+          icon={marker.icon}
         />
       ))}
     </>
   )
-}
+})
 
 type MarkerGroup = {
   location: PhotoLocation
   locationCount: number
+  locationIds: string[]
 }
 
 function groupNearbyLocations(
   locations: PhotoLocation[],
   map: ReturnType<typeof useMap>,
   threshold: number,
+  zoom: number,
 ): MarkerGroup[] {
   if (locations.length < 2) {
-    return locations.map((location) => ({ location, locationCount: 1 }))
+    return locations.map((location) => ({
+      location,
+      locationCount: 1,
+      locationIds: [location.id],
+    }))
   }
 
   const points = locations.map((location) =>
-    map.latLngToContainerPoint([location.latitude, location.longitude]),
+    map.project([location.latitude, location.longitude], zoom),
   )
   const parents = locations.map((_, index) => index)
   const findRoot = (index: number): number => {
@@ -153,7 +216,13 @@ function groupNearbyLocations(
   })
 
   return Array.from(groups.values(), (group) => {
-    if (group.length === 1) return { location: group[0], locationCount: 1 }
+    if (group.length === 1) {
+      return {
+        location: group[0],
+        locationCount: 1,
+        locationIds: [group[0].id],
+      }
+    }
 
     const photos = Array.from(
       new Map(group.flatMap((location) => location.photos).map((photo) => [photo.id, photo])).values(),
@@ -162,6 +231,7 @@ function groupNearbyLocations(
 
     return {
       locationCount: group.length,
+      locationIds,
       location: {
         id: `cluster-${locationIds.join('|')}`,
         latitude: group.reduce((sum, location) => sum + location.latitude, 0) / group.length,
@@ -190,21 +260,23 @@ export function PhotoMap({
   const [checkedCount, setCheckedCount] = useState(0)
   const [matchCount, setMatchCount] = useState<number | null>(null)
   const [lookupFailureCount, setLookupFailureCount] = useState(0)
-  const visiblePhotoIdSet = visiblePhotoIds ? new Set(visiblePhotoIds) : null
-  const visibleLocations = locations.flatMap((location) => {
+  const visiblePhotoIdSet = useMemo(
+    () => visiblePhotoIds ? new Set(visiblePhotoIds) : null,
+    [visiblePhotoIds],
+  )
+  const visibleLocations = useMemo(() => locations.flatMap((location) => {
     const photos = visiblePhotoIdSet
       ? location.photos.filter((photo) => visiblePhotoIdSet.has(photo.id))
       : location.photos
-    return photos.length > 0 ? [{ ...location, photos }] : []
-  })
-  const dateFilteredLocations = filterLocationsByDate(
-    locations,
-    dateGranularity,
-    dateFrom,
-    dateTo,
+    if (photos.length === 0) return []
+    return photos === location.photos ? [location] : [{ ...location, photos }]
+  }), [locations, visiblePhotoIdSet])
+  const dateFilteredLocations = useMemo(
+    () => filterLocationsByDate(locations, dateGranularity, dateFrom, dateTo),
+    [locations, dateGranularity, dateFrom, dateTo],
   )
 
-  const availableYears = Array.from(
+  const availableYears = useMemo(() => Array.from(
     new Set(
       locations.flatMap((location) =>
         location.photos.flatMap((photo) =>
@@ -212,7 +284,7 @@ export function PhotoMap({
         ),
       ),
     ),
-  ).sort((first, second) => Number(second) - Number(first))
+  ).sort((first, second) => Number(second) - Number(first)), [locations])
 
   const handlePhotosAdded = async (result: PhotoProcessingResult) => {
     const existingPhotoKeys = new Set(locations.flatMap((location) =>

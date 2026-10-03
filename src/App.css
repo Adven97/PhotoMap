@@ -914,6 +914,28 @@
   display: block;
 }
 
+.photo-pin-separating .photo-pin-content {
+  animation: photo-pin-separate 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes photo-pin-separate {
+  from {
+    opacity: 0.45;
+    transform: scale(0.62);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-pin-separating .photo-pin-content {
+    animation: none;
+  }
+}
+
 .photo-pin-photo {
   position: absolute;
   inset: 0;
