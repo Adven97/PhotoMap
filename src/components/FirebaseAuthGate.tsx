@@ -10,16 +10,17 @@ import { LogIn, LogOut, MapPinned } from 'lucide-react'
 import { firebaseAuth, hasFirebaseConfig } from '../firebase/firebaseApp'
 
 const App = lazy(() => import('../App'))
+const isGuestModeOnly = import.meta.env.MODE === 'guest'
 
 export function FirebaseAuthGate() {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(hasFirebaseConfig)
+  const [isLoading, setIsLoading] = useState(hasFirebaseConfig && !isGuestModeOnly)
   const [isSigningIn, setIsSigningIn] = useState(false)
   const [isGuest, setIsGuest] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!firebaseAuth) return
+    if (isGuestModeOnly || !firebaseAuth) return
 
     return onAuthStateChanged(firebaseAuth, (nextUser) => {
       setUser(nextUser)
@@ -32,7 +33,7 @@ export function FirebaseAuthGate() {
   }, [])
 
   const handleSignIn = async () => {
-    if (!firebaseAuth) return
+    if (isGuestModeOnly || !firebaseAuth) return
 
     setIsSigningIn(true)
     setAuthError(null)
@@ -55,7 +56,7 @@ export function FirebaseAuthGate() {
     }
   }
 
-  if (!hasFirebaseConfig) {
+  if (!hasFirebaseConfig && !isGuestModeOnly) {
     return (
       <main className="auth-page">
         <section className="auth-panel" aria-labelledby="firebase-setup-title">
@@ -100,10 +101,22 @@ export function FirebaseAuthGate() {
           <p className="eyebrow">PhotoMap</p>
           <h1 id="sign-in-title">Your photos, mapped</h1>
           <p>Sign in to save your photo collection to your account.</p>
-          <button type="button" className="google-sign-in" disabled={isSigningIn} onClick={() => void handleSignIn()}>
+          <button
+            type="button"
+            className="google-sign-in"
+            disabled={isSigningIn || isGuestModeOnly}
+            onClick={() => void handleSignIn()}
+          >
             <LogIn aria-hidden="true" size={18} />
-            {isSigningIn ? 'Connecting...' : 'Continue with Google'}
+            {isSigningIn
+              ? 'Connecting...'
+              : isGuestModeOnly
+                ? 'Google sign-in unavailable'
+                : 'Continue with Google'}
           </button>
+          {isGuestModeOnly && (
+            <p className="guest-mode-note">Guest mode only. Photos stay in this session and are not saved.</p>
+          )}
           <button
             type="button"
             className="guest-sign-in"

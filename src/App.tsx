@@ -54,7 +54,7 @@ function App({ userId, isGuest = false }: AppProps) {
   }, [])
 
   useEffect(() => {
-    if (unsavedPhotoCount === 0) return
+    if (isGuest || unsavedPhotoCount === 0) return
 
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -63,7 +63,7 @@ function App({ userId, isGuest = false }: AppProps) {
 
     window.addEventListener('beforeunload', warnBeforeUnload)
     return () => window.removeEventListener('beforeunload', warnBeforeUnload)
-  }, [unsavedPhotoCount])
+  }, [isGuest, unsavedPhotoCount])
 
   useEffect(() => {
     if (isGuest || !userId) return

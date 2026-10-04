@@ -62,6 +62,14 @@ export default defineConfig([
   npm run dev
   ```
 
+  To run the frontend without the Cloudinary server or Firebase configuration, start guest-only demo mode:
+
+  ```powershell
+  npm run dev:guest
+  ```
+
+  Guest mode disables Google sign-in and photo persistence. Photos and edits are kept only for the current browser session.
+
   Useful checks:
 
   ```powershell

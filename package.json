@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently -k \"node server/index.js\" \"vite\"",
     "dev:app": "vite",
+    "dev:guest": "vite --mode guest",
     "dev:server": "node server/index.js",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
