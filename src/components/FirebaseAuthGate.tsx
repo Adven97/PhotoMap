@@ -15,6 +15,7 @@ export function FirebaseAuthGate() {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(hasFirebaseConfig)
   const [isSigningIn, setIsSigningIn] = useState(false)
+  const [isGuest, setIsGuest] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -81,6 +82,14 @@ export function FirebaseAuthGate() {
     )
   }
 
+  if (isGuest) {
+    return (
+      <Suspense fallback={<main className="app-loading" role="status">Loading PhotoMap...</main>}>
+        <App key="guest" isGuest />
+      </Suspense>
+    )
+  }
+
   if (!user) {
     return (
       <main className="auth-page">
@@ -94,6 +103,13 @@ export function FirebaseAuthGate() {
           <button type="button" className="google-sign-in" disabled={isSigningIn} onClick={() => void handleSignIn()}>
             <LogIn aria-hidden="true" size={18} />
             {isSigningIn ? 'Connecting...' : 'Continue with Google'}
+          </button>
+          <button
+            type="button"
+            className="guest-sign-in"
+            onClick={() => setIsGuest(true)}
+          >
+            Continue as a guest
           </button>
           {authError && <p className="auth-error" role="alert">{authError}</p>}
         </section>

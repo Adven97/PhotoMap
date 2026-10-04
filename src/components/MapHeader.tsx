@@ -28,6 +28,7 @@ type MapHeaderProps = {
   onPhotosAdded: (result: PhotoProcessingResult) => Promise<void>
   onSaveAll: () => Promise<void>
   pendingChangeCount: number
+  showSaveButton: boolean
   isSavingPhotos: boolean
   saveProgress: { completed: number; total: number } | null
 }
@@ -50,6 +51,7 @@ export function MapHeader({
   onPhotosAdded,
   onSaveAll,
   pendingChangeCount,
+  showSaveButton,
   isSavingPhotos,
   saveProgress,
 }: MapHeaderProps) {
@@ -60,24 +62,26 @@ export function MapHeader({
       <div className="map-header-title">
         <p className="map-brand">PhotoMap</p>
         <span>{locationCount} {locationCount === 1 ? 'location' : 'locations'}</span>
-        <button
-          type="button"
-          className="map-save-button"
-          disabled={isSavingPhotos || pendingChangeCount === 0}
-          aria-busy={isSavingPhotos}
-          onClick={() => void onSaveAll()}
-        >
-          {isSavingPhotos ? (
-            <LoaderCircle aria-hidden="true" className="is-spinning" size={16} />
-          ) : (
-            <Save aria-hidden="true" size={16} />
-          )}
-          {isSavingPhotos
-            ? `Saving ${saveProgress?.completed ?? 0}/${saveProgress?.total ?? pendingChangeCount}...`
-            : pendingChangeCount > 0
-              ? `Save changes (${pendingChangeCount})`
-              : 'Save all'}
-        </button>
+        {showSaveButton && (
+          <button
+            type="button"
+            className="map-save-button"
+            disabled={isSavingPhotos || pendingChangeCount === 0}
+            aria-busy={isSavingPhotos}
+            onClick={() => void onSaveAll()}
+          >
+            {isSavingPhotos ? (
+              <LoaderCircle aria-hidden="true" className="is-spinning" size={16} />
+            ) : (
+              <Save aria-hidden="true" size={16} />
+            )}
+            {isSavingPhotos
+              ? `Saving ${saveProgress?.completed ?? 0}/${saveProgress?.total ?? pendingChangeCount}...`
+              : pendingChangeCount > 0
+                ? `Save changes (${pendingChangeCount})`
+                : 'Save all'}
+          </button>
+        )}
         <button
           type="button"
           className="map-header-toggle"

@@ -17,17 +17,18 @@ import type { PhotoProcessingResult } from './services/photoExifService'
 import './App.css'
 
 type AppProps = {
-  userId: string
+  userId?: string
+  isGuest?: boolean
 }
 
 const RESTORE_TIMEOUT_MS = 2500
 
-function App({ userId }: AppProps) {
+function App({ userId, isGuest = false }: AppProps) {
   const [view, setView] = useState<'upload' | 'map'>('upload')
   const [locations, setLocations] = useState<PhotoLocation[]>([])
   const [selectedLocation, setSelectedLocation] = useState<PhotoLocation | null>(null)
   const [processingResult, setProcessingResult] = useState<PhotoProcessingResult | null>(null)
-  const [isRestoring, setIsRestoring] = useState(true)
+  const [isRestoring, setIsRestoring] = useState(!isGuest)
   const [isSavingPhotos, setIsSavingPhotos] = useState(false)
   const [pendingPhotoDeletionIds, setPendingPhotoDeletionIds] = useState<string[]>([])
   const [saveProgress, setSaveProgress] = useState<{ completed: number; total: number } | null>(null)
@@ -65,6 +66,8 @@ function App({ userId }: AppProps) {
   }, [unsavedPhotoCount])
 
   useEffect(() => {
+    if (isGuest || !userId) return
+
     let isCurrent = true
     const restoreTimeoutId = window.setTimeout(() => {
       if (isCurrent) setIsRestoring(false)
@@ -96,10 +99,10 @@ function App({ userId }: AppProps) {
       isCurrent = false
       window.clearTimeout(restoreTimeoutId)
     }
-  }, [userId])
+  }, [isGuest, userId])
 
   useEffect(() => {
-    if (isRestoring) return
+    if (isRestoring || isGuest || !userId) return
 
     for (const location of locations) {
       if (location.city || location.country || placeLookupIds.current.has(location.id)) continue
@@ -112,14 +115,14 @@ function App({ userId }: AppProps) {
           if (!currentLocation) return
 
           setLocations((current) =>
-            current.map((currentLocation) =>
-              currentLocation.id === location.id
+            current.map((item) =>
+              item.id === location.id
                 ? {
-                    ...currentLocation,
+                    ...item,
                     city: place.city ?? undefined,
                     country: place.country ?? undefined,
                   }
-                : currentLocation,
+                : item,
             ),
           )
 
@@ -138,7 +141,7 @@ function App({ userId }: AppProps) {
         .catch(() => undefined)
         .finally(() => placeLookupIds.current.delete(location.id))
     }
-  }, [isRestoring, locations, userId])
+  }, [isGuest, isRestoring, locations, userId])
 
   useEffect(() => {
     if (!processingResult) return
@@ -157,11 +160,12 @@ function App({ userId }: AppProps) {
   }
 
   const handleSaveAll = async () => {
+    if (isGuest || !userId) return
+
     const unsavedLocations = locations.flatMap((location) => {
       const photos = location.photos.filter((photo) => !photo.storagePath)
       return photos.length > 0 ? [{ ...location, photos }] : []
     })
-
     const photosToDelete = [...pendingPhotoDeletionIds]
     if ((unsavedLocations.length === 0 && photosToDelete.length === 0) || isSavingPhotos) return
 
@@ -169,17 +173,16 @@ function App({ userId }: AppProps) {
     setStorageError(null)
     let completedChanges = 0
     const uploadCount = unsavedLocations.reduce((total, location) => total + location.photos.length, 0)
-    setSaveProgress({
-      completed: 0,
-      total: uploadCount + photosToDelete.length,
-    })
+    const totalChanges = uploadCount + photosToDelete.length
+    setSaveProgress({ completed: 0, total: totalChanges })
+
     try {
       const uploadedLocations = await uploadPhotoLocations(
         userId,
         unsavedLocations,
         (completed) => {
           completedChanges = completed
-          setSaveProgress({ completed: completedChanges, total: uploadCount + photosToDelete.length })
+          setSaveProgress({ completed: completedChanges, total: totalChanges })
         },
       )
       const uploadedPhotos = new Map(
@@ -201,7 +204,7 @@ function App({ userId }: AppProps) {
       for (const photoId of photosToDelete) {
         await deleteUserPhoto(userId, photoId)
         completedChanges += 1
-        setSaveProgress({ completed: completedChanges, total: uploadCount + photosToDelete.length })
+        setSaveProgress({ completed: completedChanges, total: totalChanges })
       }
 
       setPendingPhotoDeletionIds((current) =>
@@ -234,6 +237,7 @@ function App({ userId }: AppProps) {
           onPhotosAdded={handlePhotosAdded}
           onSaveAll={handleSaveAll}
           pendingChangeCount={pendingChangeCount}
+          showSaveButton={!isGuest}
           isSavingPhotos={isSavingPhotos}
           saveProgress={saveProgress}
         />
@@ -246,7 +250,10 @@ function App({ userId }: AppProps) {
             onClose={() => setSelectedLocation(null)}
             onDescriptionSave={async (photoId, description) => {
               const normalizedDescription = description.trim()
-              await updatePhotoDescription(userId, photoId, normalizedDescription)
+              if (!isGuest) {
+                if (!userId) throw new Error('Sign-in is required to save descriptions.')
+                await updatePhotoDescription(userId, photoId, normalizedDescription)
+              }
 
               const updateLocation = (location: PhotoLocation): PhotoLocation => ({
                 ...location,
@@ -268,7 +275,7 @@ function App({ userId }: AppProps) {
 
               if (!photo) return
 
-              if (photo.storagePath) {
+              if (!isGuest && photo.storagePath) {
                 setPendingPhotoDeletionIds((current) =>
                   current.includes(photoId) ? current : [...current, photoId],
                 )
@@ -282,9 +289,7 @@ function App({ userId }: AppProps) {
                 const photos = current.photos.filter((item) => item.id !== photoId)
                 return photos.length > 0 ? { ...current, photos } : null
               })
-              if (photo.previewUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(photo.previewUrl)
-              }
+              if (photo.previewUrl.startsWith('blob:')) URL.revokeObjectURL(photo.previewUrl)
               setStorageError(null)
             }}
           />
