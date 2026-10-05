@@ -28,7 +28,6 @@ type PhotoMapProps = PhotoMarkersProps & {
   onPhotosAdded: (result: PhotoProcessingResult) => void | Promise<void>
   onSaveAll: () => Promise<void>
   pendingChangeCount: number
-  showSaveButton: boolean
   isSavingPhotos: boolean
   saveProgress: { completed: number; total: number } | null
 }
@@ -249,7 +248,6 @@ export function PhotoMap({
   onPhotosAdded,
   onSaveAll,
   pendingChangeCount,
-  showSaveButton,
   isSavingPhotos,
   saveProgress,
 }: PhotoMapProps) {
@@ -400,7 +398,6 @@ export function PhotoMap({
         onPhotosAdded={handlePhotosAdded}
         onSaveAll={onSaveAll}
         pendingChangeCount={pendingChangeCount}
-        showSaveButton={showSaveButton}
         isSavingPhotos={isSavingPhotos}
         saveProgress={saveProgress}
       />
